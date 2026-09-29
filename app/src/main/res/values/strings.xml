@@ -1,0 +1,10 @@
+<resources>
+    <string name="app_name">AI Keyboard Overlay</string>
+    <string name="accessibility_service_label">My App Accessibility Service</string>
+    <string name="accessibility_service_description">Allows the app to read and write text fields in other apps to provide floating assistant functionality.</string>
+    <string name="floating_button_description">Floating assistant button</string>
+    <string-array name="model_status_options">
+        <item>Model: Not active</item>
+        <item>Model: Active</item>
+    </string-array>
+</resources>
