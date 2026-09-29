@@ -19,13 +19,18 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
+import java.net.HttpURLConnection
+import java.net.URL
 
 class TextEditorAccessibilityService : AccessibilityService() {
 
     companion object {
         private const val TAG = "TextEditorA11yService"
         private const val MODEL_FILE_NAME = "qwen-0.6b.gguf"
+        private const val MODEL_DOWNLOAD_URL =
+            "https://huggingface.co/bartowski/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/Qwen2.5-0.5B-Instruct-Q5_K_M.gguf"
     }
 
     private val serviceJob = Job()
@@ -102,9 +107,53 @@ class TextEditorAccessibilityService : AccessibilityService() {
     private fun loadModelInBackground() {
         serviceScope.launch {
             val modelFile = File(filesDir, MODEL_FILE_NAME)
+            if (!modelFile.exists()) {
+                val downloaded = downloadModel(modelFile)
+                if (!downloaded) {
+                    Log.e(TAG, "Model download failed")
+                    broadcastModelState()
+                    return@launch
+                }
+            }
             isModelReady = llamaEngine.loadModel(modelFile, nThreads = 1, nCtx = 1024)
             Log.d(TAG, "Model ready: $isModelReady (path=${modelFile.absolutePath})")
             broadcastModelState()
+        }
+    }
+
+    private suspend fun downloadModel(destination: File): Boolean {
+        return withContext(Dispatchers.IO) {
+            val tempFile = File(destination.parentFile, "${destination.name}.tmp")
+            var connection: HttpURLConnection? = null
+            try {
+                connection = URL(MODEL_DOWNLOAD_URL).openConnection() as HttpURLConnection
+                connection.connectTimeout = 30_000
+                connection.readTimeout = 30_000
+                connection.instanceFollowRedirects = true
+                connection.connect()
+                if (connection.responseCode !in 200..299) {
+                    Log.e(TAG, "Model download returned HTTP ${connection.responseCode}")
+                    return@withContext false
+                }
+
+                connection.inputStream.use { input ->
+                    tempFile.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                }
+                if (!tempFile.renameTo(destination)) {
+                    Log.e(TAG, "Failed to move downloaded model into place")
+                    return@withContext false
+                }
+                Log.d(TAG, "Downloaded model to ${destination.absolutePath}")
+                true
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to download model", e)
+                false
+            } finally {
+                connection?.disconnect()
+                tempFile.delete()
+            }
         }
     }
 
